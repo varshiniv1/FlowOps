@@ -1,6 +1,7 @@
 using FlowOps.Api.Data;
 using FlowOps.Api.Models.DTOs;
 using FlowOps.Api.Models.Entities;
+using FlowOps.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -13,10 +14,12 @@ namespace FlowOps.Api.Controllers;
 public class ProductsController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly S3StorageService _storage;
 
-    public ProductsController(AppDbContext db)
+    public ProductsController(AppDbContext db, S3StorageService storage)
     {
         _db = db;
+        _storage = storage;
     }
 
     [HttpGet]
@@ -24,12 +27,15 @@ public class ProductsController : ControllerBase
     {
         var products = await _db.Products
             .OrderBy(p => p.Name)
-            .Select(p => new ProductResponse(
-                p.Id, p.Sku, p.Name, p.Description,
-                p.Price, p.QuantityOnHand, p.ImageUrl, p.CreatedAt))
             .ToListAsync();
 
-        return Ok(products);
+        var response = products.Select(p => new ProductResponse(
+            p.Id, p.Sku, p.Name, p.Description,
+            p.Price, p.QuantityOnHand,
+            p.ImageUrl != null ? _storage.GetPresignedUrl(p.ImageUrl) : null,
+            p.CreatedAt)).ToList();
+
+        return Ok(response);
     }
 
     [HttpGet("{id:guid}")]
@@ -40,7 +46,9 @@ public class ProductsController : ControllerBase
 
         return Ok(new ProductResponse(
             p.Id, p.Sku, p.Name, p.Description,
-            p.Price, p.QuantityOnHand, p.ImageUrl, p.CreatedAt));
+            p.Price, p.QuantityOnHand,
+            p.ImageUrl != null ? _storage.GetPresignedUrl(p.ImageUrl) : null,
+            p.CreatedAt));
     }
 
     [HttpPost]
@@ -86,6 +94,51 @@ public class ProductsController : ControllerBase
 
         return Ok(new ProductResponse(
             product.Id, product.Sku, product.Name, product.Description,
-            product.Price, product.QuantityOnHand, product.ImageUrl, product.CreatedAt));
+            product.Price, product.QuantityOnHand,
+            product.ImageUrl != null ? _storage.GetPresignedUrl(product.ImageUrl) : null,
+            product.CreatedAt));
+    }
+
+    [HttpPost("{id:guid}/image")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult> UploadImage(Guid id, IFormFile file)
+    {
+        var product = await _db.Products.FindAsync(id);
+        if (product is null) return NotFound();
+
+        if (file.Length == 0 || file.Length > 5 * 1024 * 1024)
+            return BadRequest("File must be between 1 byte and 5MB");
+
+        var allowed = new[] { "image/jpeg", "image/png", "image/webp" };
+        if (!allowed.Contains(file.ContentType))
+            return BadRequest("Only JPEG, PNG, and WebP images are allowed");
+
+        if (product.ImageUrl != null)
+            await _storage.DeleteAsync(product.ImageUrl);
+
+        using var stream = file.OpenReadStream();
+        var key = await _storage.UploadAsync(stream, file.FileName, file.ContentType);
+
+        product.ImageUrl = key;
+        product.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return Ok(new { imageUrl = _storage.GetPresignedUrl(key) });
+    }
+
+    [HttpDelete("{id:guid}/image")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult> DeleteImage(Guid id)
+    {
+        var product = await _db.Products.FindAsync(id);
+        if (product is null) return NotFound();
+        if (product.ImageUrl is null) return NoContent();
+
+        await _storage.DeleteAsync(product.ImageUrl);
+        product.ImageUrl = null;
+        product.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return NoContent();
     }
 }

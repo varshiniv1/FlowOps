@@ -24,4 +24,14 @@ export class ProductService {
   update(id: string, product: { name: string; description?: string; price: number }) {
     return this.http.put<Product>(`${this.url}/${id}`, product);
   }
+
+  uploadImage(id: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.http.post<{ imageUrl: string }>(`${this.url}/${id}/image`, formData);
+  }
+
+  deleteImage(id: string) {
+    return this.http.delete(`${this.url}/${id}/image`);
+  }
 }
