@@ -25,6 +25,16 @@ import { Product } from '../../models/api.models';
 
     <mat-card>
       <table mat-table [dataSource]="products" class="full-width">
+        <ng-container matColumnDef="image">
+          <th mat-header-cell *matHeaderCellDef>Image</th>
+          <td mat-cell *matCellDef="let p">
+            @if (p.imageUrl) {
+              <img [src]="p.imageUrl" alt="{{ p.name }}" class="product-thumb">
+            } @else {
+              <mat-icon class="no-image">image</mat-icon>
+            }
+          </td>
+        </ng-container>
         <ng-container matColumnDef="sku">
           <th mat-header-cell *matHeaderCellDef>SKU</th>
           <td mat-cell *matCellDef="let p">{{ p.sku }}</td>
@@ -61,11 +71,13 @@ import { Product } from '../../models/api.models';
   styles: [`
     .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     .full-width { width: 100%; }
+    .product-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; }
+    .no-image { color: #ccc; }
   `]
 })
 export class ProductListComponent implements OnInit {
   products: Product[] = [];
-  displayedColumns = ['sku', 'name', 'price', 'quantity', 'actions'];
+  displayedColumns = ['image', 'sku', 'name', 'price', 'quantity', 'actions'];
 
   constructor(private productService: ProductService, public auth: AuthService) {}
 

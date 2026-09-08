@@ -42,6 +42,18 @@ import { ProductService } from '../../services/product.service';
               <input matInput type="number" [(ngModel)]="form.quantityOnHand" name="quantityOnHand" required min="0">
             </mat-form-field>
           }
+          @if (isEdit) {
+            <div class="image-section">
+              <label>Product Image</label>
+              @if (imagePreview) {
+                <img [src]="imagePreview" alt="Product image" class="image-preview">
+              }
+              <input type="file" accept="image/jpeg,image/png,image/webp" (change)="onFileSelected($event)">
+              @if (selectedFile) {
+                <button mat-stroked-button type="button" (click)="uploadImage()">Upload Image</button>
+              }
+            </div>
+          }
           <div class="form-actions">
             <button mat-button type="button" (click)="cancel()">Cancel</button>
             <button mat-raised-button color="primary" type="submit">{{ isEdit ? 'Update' : 'Create' }}</button>
@@ -53,12 +65,16 @@ import { ProductService } from '../../services/product.service';
   styles: [`
     .form-grid { display: flex; flex-direction: column; max-width: 500px; gap: 4px; }
     .form-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .image-section { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+    .image-preview { width: 120px; height: 120px; object-fit: cover; border-radius: 8px; }
   `]
 })
 export class ProductFormComponent implements OnInit {
   isEdit = false;
   productId = '';
   form = { sku: '', name: '', description: '', price: 0, quantityOnHand: 0 };
+  selectedFile: File | null = null;
+  imagePreview: string | null = null;
 
   constructor(
     private route: ActivatedRoute,
@@ -73,6 +89,7 @@ export class ProductFormComponent implements OnInit {
     if (this.isEdit) {
       this.productService.getById(this.productId).subscribe(p => {
         this.form = { sku: p.sku, name: p.name, description: p.description || '', price: p.price, quantityOnHand: p.quantityOnHand };
+        this.imagePreview = p.imageUrl || null;
       });
     }
   }
@@ -89,6 +106,25 @@ export class ProductFormComponent implements OnInit {
         error: (err) => this.snackBar.open(err.error || 'Create failed', 'Close', { duration: 3000 })
       });
     }
+  }
+
+  onFileSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (input.files?.length) {
+      this.selectedFile = input.files[0];
+    }
+  }
+
+  uploadImage() {
+    if (!this.selectedFile) return;
+    this.productService.uploadImage(this.productId, this.selectedFile).subscribe({
+      next: (res) => {
+        this.imagePreview = res.imageUrl;
+        this.selectedFile = null;
+        this.snackBar.open('Image uploaded', 'Close', { duration: 2000 });
+      },
+      error: (err) => this.snackBar.open(err.error || 'Upload failed', 'Close', { duration: 3000 })
+    });
   }
 
   cancel() {
