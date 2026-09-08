@@ -1,0 +1,87 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  dotnetVersion: '8.0.x'
+  nodeVersion: '20.x'
+
+stages:
+  - stage: Build
+    displayName: 'Build & Test'
+    jobs:
+      - job: API
+        displayName: 'Build .NET API'
+        steps:
+          - task: UseDotNet@2
+            displayName: 'Install .NET SDK'
+            inputs:
+              packageType: 'sdk'
+              version: $(dotnetVersion)
+
+          - script: dotnet restore
+            displayName: 'Restore NuGet packages'
+            workingDirectory: src/FlowOps.Api
+
+          - script: dotnet build --configuration Release --no-restore
+            displayName: 'Build API'
+            workingDirectory: src/FlowOps.Api
+
+          - script: dotnet test --configuration Release --no-build --logger trx
+            displayName: 'Run tests'
+            workingDirectory: tests/FlowOps.Api.Tests
+            continueOnError: true
+
+          - script: dotnet publish --configuration Release --output $(Build.ArtifactStagingDirectory)/api
+            displayName: 'Publish API'
+            workingDirectory: src/FlowOps.Api
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Upload API artifact'
+            inputs:
+              pathToPublish: $(Build.ArtifactStagingDirectory)/api
+              artifactName: 'api'
+
+      - job: Client
+        displayName: 'Build Angular Client'
+        steps:
+          - task: NodeTool@0
+            displayName: 'Install Node.js'
+            inputs:
+              versionSpec: $(nodeVersion)
+
+          - script: npm ci
+            displayName: 'Install dependencies'
+            workingDirectory: client
+
+          - script: npx ng build --configuration production
+            displayName: 'Build Angular app'
+            workingDirectory: client
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Upload client artifact'
+            inputs:
+              pathToPublish: client/dist/client/browser
+              artifactName: 'client'
+
+  - stage: Docker
+    displayName: 'Build Docker Image'
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: BuildImage
+        displayName: 'Build & Push Docker Image'
+        steps:
+          - task: Docker@2
+            displayName: 'Build Docker image'
+            inputs:
+              command: build
+              Dockerfile: src/FlowOps.Api/Dockerfile
+              buildContext: .
+              tags: |
+                $(Build.BuildId)
+                latest
